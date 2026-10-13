@@ -66,18 +66,22 @@ jupyterlab = ">3"
 nbval = "*"
 pre-commit = "*"
 pytest = "*"
+pytest-cov = "*"
 ruff = "*"
 towncrier = "*"
+twine = "*"
 
 [tool.pixi.pypi-dependencies]
 tommos-adapter = { path = ".", editable = true }
 
 [tool.pixi.tasks]
+build-dists = {cmd="rm -rf dist && hatch build -t sdist -t wheel && twine check dist/*", description="Build and check sdist and wheel."}
+coverage = {cmd="pytest -v --cov src/tommos_adapter --cov-report xml", description="Run unittests with coverage."}
 examples = "jupyter-lab examples"
-test-unittest = "pytest -vv tests"
-test-docstrings = "pytest -vv --doctest-modules src/tommos_adapter"
-test-notebooks = "pytest -vv --nbval-lax examples"
-test-all = { depends-on = ["test-unittest", "test-docstrings", "test-notebooks"] }
+test-unittest = {cmd="pytest -vv tests", description="Run unittests."}
+test-docstrings = {cmd="pytest -vv --doctest-modules src/tommos_adapter", description="Run doctests."}
+test-notebooks = {cmd="pytest -vv --nbval-lax examples", description="Test notebooks"}
+test-all = {depends-on=["test-unittest", "test-docstrings", "test-notebooks"], description="Run all tests."}
 style = "pre-commit run --all-files"
 
 [tool.towncrier]

@@ -1,0 +1,7 @@
+{% for section, keys in structure.items() %}
+[{{ section }}]
+{% for key in keys if key in parameters %}
+{{ key }} = {{ parameters[key] }}
+{% endfor %}
+
+{% endfor %}

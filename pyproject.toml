@@ -22,7 +22,14 @@ classifiers = [
   'Topic :: Scientific/Engineering :: Physics',
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "tommos @ https://github.com/MaMMoS-project/tommos.git",
+  # "micromagneticdata @ https://github.com/ubermag/micromagneticdata.git",
+  "micromagneticmodel @ https://github.com/ubermag/micromagneticmodel.git",
+  # "micromagnetictests @ https://github.com/ubermag/micromagnetictests.git",
+  # "ubermagtable @ https://github.com/ubermag/ubermagtable.git",
+  "pyvista[all]",
+]
 
 [project.urls]
 Homepage = "https://MaMMoS-project.github.io"
@@ -30,6 +37,12 @@ Documentation = "https://mammos-project.github.io/mammos"
 Repository = "https://github.com/MaMMoS-project/tommos-adapter"
 Issues = "https://github.com/MaMMoS-project/tommos-adapter/issues"
 Changelog = "https://mammos-project.github.io/mammos/changelog"
+
+[tool.coverage.run]
+omit = ["tommos_adapter/tests/*"]
+
+[tool.hatch.metadata]
+allow-direct-references = true  # keep true as long as we are using direct dependencies from github
 
 [tool.ruff]
 target-version = "py311"
@@ -52,7 +65,7 @@ pydocstyle.convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["B018"]  # "Found useless expression. Either assign it to a variable or remove it."; false positives when using implicit __repr__ in the notebook
-"tests/*" = ["D100", "D103"]  # do not enforce docstrings in tests
+"src/tommos_adapter/tests/*" = ["D100", "D103"]  # do not enforce docstrings in tests
 
 [tool.pixi.workspace]
 channels = [ "conda-forge" ]
@@ -78,7 +91,7 @@ tommos-adapter = { path = ".", editable = true }
 build-dists = {cmd="rm -rf dist && hatch build -t sdist -t wheel && twine check dist/*", description="Build and check sdist and wheel."}
 coverage = {cmd="pytest -v --cov src/tommos_adapter --cov-report xml", description="Run unittests with coverage."}
 examples = "jupyter-lab examples"
-test-unittest = {cmd="pytest -vv tests", description="Run unittests."}
+test-unittest = {cmd="python -c 'import tommos_adapter; tommos_adapter.test()'", description="Run unittests."}
 test-docstrings = {cmd="pytest -vv --doctest-modules src/tommos_adapter", description="Run doctests."}
 test-notebooks = {cmd="pytest -vv --nbval-lax examples", description="Test notebooks"}
 test-all = {depends-on=["test-unittest", "test-docstrings", "test-notebooks"], description="Run all tests."}

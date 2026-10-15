@@ -13,7 +13,7 @@ import micromagneticmodel as mm
 import numpy as np
 import pyvista as pv
 
-from tommos_adapter.scripts import write_input_files
+from tommos_adapter import scripts
 from tommos_adapter.tommos_runner import TommosRunner
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ class HysteresisDriver(mm.adapter_base.ExternalDriver):
 
     """
 
-    _allowed_attributes = []
+    _allowed_attributes = ["max_iter", "tol_fun", "eps_a"]
 
     def _checkargs(self, kwargs: dict[str, Any]) -> None:
         """Validate and convert hysteresis arguments to TOMMOS parameters."""
@@ -115,7 +115,20 @@ class HysteresisDriver(mm.adapter_base.ExternalDriver):
 
     def _write_input_files(self, system: micromagneticmodel.System, **kwargs: Any) -> None:
         """Write input files."""
-        write_input_files(self, system, **kwargs)
+        mesh = scripts.mesh_data(system, mesh_unit=scripts.DEFAULT_MESH_UNIT)
+        np.savez(f"{system.name}.npz", **mesh)
+        Path(f"{system.name}.krn").write_text(scripts.krn_script(system), encoding="utf-8")
+
+        p2_arguments = {name: kwargs[name] for name in ("hx", "hy", "hz", "hstart", "hfinal", "hstep")}
+        p2_arguments.update(dict(self))
+        Path(f"{system.name}.p2").write_text(
+            scripts.p2_script(
+                system,
+                mesh_unit=scripts.DEFAULT_MESH_UNIT,
+                **p2_arguments,
+            ),
+            encoding="utf-8",
+        )
 
     def _call(
         self,
@@ -191,7 +204,12 @@ class HysteresisDriver(mm.adapter_base.ExternalDriver):
         matching_mesh = (
             output_state.n_points == system.m.n_points
             and output_state.n_cells == system.m.n_cells
-            and np.allclose(output_state.points, system.m.points)
+            and np.allclose(
+                output_state.points * scripts.DEFAULT_MESH_UNIT,
+                system.m.points,
+                rtol=1e-7,
+                atol=scripts.DEFAULT_MESH_UNIT * 1e-5,
+            )
             and np.array_equal(output_state.celltypes, system.m.celltypes)
             and np.array_equal(output_state.cell_connectivity, system.m.cell_connectivity)
         )
@@ -250,7 +268,7 @@ class HysteresisDriver(mm.adapter_base.ExternalDriver):
             raise TypeError("TOMMOS requires system.m to be a pyvista.UnstructuredGrid.")
         if "m" not in system.m.point_data:
             raise RuntimeError("The magnetization array 'm' is missing from system.m.point_data.")
-        for name in ("id", "Js"):
+        for name in ("region_id", "Ms"):
             if name not in system.m.cell_data:
                 raise RuntimeError(f"The material array '{name}' is missing from system.m.cell_data.")
 
@@ -264,6 +282,17 @@ class HysteresisDriver(mm.adapter_base.ExternalDriver):
         magnetization_norm = np.linalg.norm(magnetization, axis=1)
         if not np.allclose(magnetization_norm, 1, rtol=1e-6, atol=1e-6):
             raise RuntimeError("The magnetization array 'm' must contain unit vectors at every mesh point.")
+        if not np.allclose(magnetization, magnetization[0], rtol=1e-12, atol=1e-14):
+            raise RuntimeError(
+                "TOMMOS adapter currently supports only a uniform initial magnetization; "
+                "writing a restart VTU file is not implemented yet."
+            )
+
+        try:
+            scripts.mesh_data(system, mesh_unit=scripts.DEFAULT_MESH_UNIT)
+            scripts.krn_data(system)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(f"System cannot be translated to TOMMOS input: {error}") from error
 
     @property
     def _x(self) -> str:

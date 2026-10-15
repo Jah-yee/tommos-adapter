@@ -1,6 +1,5 @@
 """Test hysteresis driver."""
 
-from textwrap import dedent
 from unittest.mock import Mock
 
 import micromagneticmodel as mm
@@ -11,7 +10,9 @@ import tommos_adapter as ta
 
 
 def test_allowed_attributes():
-    assert ta.HysteresisDriver()._allowed_attributes == []
+    assert ta.HysteresisDriver()._allowed_attributes == ["max_iter", "tol_fun", "eps_a"]
+    driver = ta.HysteresisDriver(max_iter=1000, tol_fun=1e-8, eps_a="auto")
+    assert dict(driver) == {"max_iter": 1000, "tol_fun": 1e-8, "eps_a": "auto"}
     with pytest.raises(AttributeError, match="Invalid attribute key"):
         ta.HysteresisDriver(unexpected_argument=1)
 
@@ -114,7 +115,8 @@ def test_write_input_files_after_checking(state_zero, tmp_path, monkeypatch):
     state = state_zero.copy()
     state.point_data["m"][:, 2] = 1
     system.m = state
-    hd = ta.HysteresisDriver()
+    system.energy = mm.Demag()
+    hd = ta.HysteresisDriver(max_iter=1000, tol_fun=1e-8, eps_a="auto")
     kwargs = {
         "Hmin": (1 / mm.consts.mu0, 0, 0),
         "Hmax": (-2 / mm.consts.mu0, 0, 0),
@@ -126,34 +128,19 @@ def test_write_input_files_after_checking(state_zero, tmp_path, monkeypatch):
     assert (tmp_path / "test_write_input_files_after_checking.npz").is_file()
     assert (tmp_path / "test_write_input_files_after_checking.krn").is_file()
     assert (tmp_path / "test_write_input_files_after_checking.p2").is_file()
-    assert (tmp_path / "test_write_input_files_after_checking.krn").read_text() == dedent(
-        """\
-        # theta (rad) phi (rad) K1 (J/m3) not used Js (Tesla) A (J/m)
-        0.0 0.0 0.0 0.0 1.0 0.0"""
-    )
-    assert (tmp_path / "test_write_input_files_after_checking.p2").read_text() == dedent(
-        """\
-        [mesh]
-
-        [initial state]
-        mx = 0.0
-        my = 0.0
-        mz = 1.0
-
-        [field]
-        hx = -1.0
-        hy = 0.0
-        hz = 0.0
-        hstart = -1.0
-        hfinal = 2.0
-        hstep = 0.3
-
-        [minimizer]
-
-        [poisson]
-
-        """
-    )
+    assert (tmp_path / "test_write_input_files_after_checking.krn").read_text() == "0 0 0 0 1 0\n"
+    p2_text = (tmp_path / "test_write_input_files_after_checking.p2").read_text()
+    assert "size = 1.0000000000000001e-09" in p2_text
+    assert "mx = 0" in p2_text
+    assert "my = 0" in p2_text
+    assert "mz = 1" in p2_text
+    assert "hx = -1" in p2_text
+    assert "hstart = -1" in p2_text
+    assert "hfinal = 2" in p2_text
+    assert "hstep = 0.29999999999999999" in p2_text
+    assert "max_iter = 1000" in p2_text
+    assert "tol_fun = 1e-08" in p2_text
+    assert "eps_a = auto" in p2_text
 
 
 def test_schedule_command():
@@ -182,10 +169,11 @@ def test_call_passes_progress_information():
 def _write_tommos_output(state, output_file, magnetization):
     """Write a minimal VTU file matching TOMMOS output."""
     output_state = state.copy()
+    output_state.points /= ta.scripts.DEFAULT_MESH_UNIT
     output_state.clear_data()
     output_state.point_data["m"] = np.broadcast_to(magnetization, (state.n_points, 3))
     output_state.point_data["U"] = np.zeros(state.n_points)
-    output_state.cell_data["mat_id"] = state.cell_data["id"]
+    output_state.cell_data["mat_id"] = state.cell_data["region_id"]
     output_state.save(output_file)
 
 
@@ -197,8 +185,8 @@ def test_read_data_updates_only_magnetization(state_zero, tmp_path, monkeypatch)
     state.cell_data["region"] = np.arange(state.n_cells)
     system = mm.System(name="read_data", m=state)
     original_state = system.m
-    original_id = state.cell_data["id"].copy()
-    original_Js = state.cell_data["Js"].copy()
+    original_region_id = state.cell_data["region_id"].copy()
+    original_Ms = state.cell_data["Ms"].copy()
     original_region = state.cell_data["region"].copy()
     original_point_data = state.point_data["custom_point_data"].copy()
 
@@ -213,8 +201,8 @@ def test_read_data_updates_only_magnetization(state_zero, tmp_path, monkeypatch)
     assert system.m is original_state
     np.testing.assert_array_equal(system.m.point_data["m"], np.tile((0, 1, 0), (state.n_points, 1)))
     np.testing.assert_array_equal(system.m.point_data["custom_point_data"], original_point_data)
-    np.testing.assert_array_equal(system.m.cell_data["id"], original_id)
-    np.testing.assert_array_equal(system.m.cell_data["Js"], original_Js)
+    np.testing.assert_array_equal(system.m.cell_data["region_id"], original_region_id)
+    np.testing.assert_array_equal(system.m.cell_data["Ms"], original_Ms)
     np.testing.assert_array_equal(system.m.cell_data["region"], original_region)
 
 
@@ -241,6 +229,7 @@ def test_read_data_rejects_invalid_output(state_zero, tmp_path, monkeypatch, inv
     magnetization_before_read = state.point_data["m"].copy()
 
     output_state = state.copy()
+    output_state.points /= ta.scripts.DEFAULT_MESH_UNIT
     if invalid_output == "missing_m":
         output_state.point_data.remove("m")
         error_message = "does not contain point data 'm'"
@@ -294,8 +283,8 @@ def test_check_system_requires_unstructured_grid():
     "association, name, error_message",
     [
         ("point_data", "m", "magnetization array 'm' is missing"),
-        ("cell_data", "id", "material array 'id' is missing"),
-        ("cell_data", "Js", "material array 'Js' is missing"),
+        ("cell_data", "region_id", "material array 'region_id' is missing"),
+        ("cell_data", "Ms", "material array 'Ms' is missing"),
     ],
 )
 def test_check_system_requires_grid_data(state_zero, association, name, error_message):
@@ -303,7 +292,7 @@ def test_check_system_requires_grid_data(state_zero, association, name, error_me
     state = state_zero.copy()
     state.point_data["m"][:, 0] = 1
     getattr(state, association).remove(name)
-    system = mm.System(name="test_missing_grid_data", energy=mm.Exchange(A=1e-12), m=state)
+    system = mm.System(name="test_missing_grid_data", energy=mm.Exchange(A=1e-12) + mm.Demag(), m=state)
 
     with pytest.raises(RuntimeError, match=error_message):
         ta.HysteresisDriver()._check_system(system)
@@ -313,7 +302,7 @@ def test_check_system_magnetization_shape(state_zero):
     """Magnetization must contain one three-dimensional vector per point."""
     state = state_zero.copy()
     state.point_data["m"] = np.ones((state.n_points, 2))
-    system = mm.System(name="test_invalid_shape", energy=mm.Exchange(A=1e-12), m=state)
+    system = mm.System(name="test_invalid_shape", energy=mm.Exchange(A=1e-12) + mm.Demag(), m=state)
 
     with pytest.raises(RuntimeError, match="must have shape"):
         ta.HysteresisDriver()._check_system(system)
@@ -324,7 +313,7 @@ def test_check_system_finite_magnetization(state_zero):
     state = state_zero.copy()
     state.point_data["m"][:, 0] = 1
     state.point_data["m"][0, 0] = np.nan
-    system = mm.System(name="test_non_finite_m", energy=mm.Exchange(A=1e-12), m=state)
+    system = mm.System(name="test_non_finite_m", energy=mm.Exchange(A=1e-12) + mm.Demag(), m=state)
 
     with pytest.raises(RuntimeError, match="must contain only finite values"):
         ta.HysteresisDriver()._check_system(system)
@@ -336,7 +325,7 @@ def test_check_system_normalized_magnetization(state_zero, value):
     state = state_zero.copy()
     state.point_data["m"][:, 0] = value
     magnetization_before_check = state.point_data["m"].copy()
-    system = mm.System(name="test_non_normalized_m", energy=mm.Exchange(A=1e-12), m=state)
+    system = mm.System(name="test_non_normalized_m", energy=mm.Exchange(A=1e-12) + mm.Demag(), m=state)
 
     with pytest.raises(RuntimeError, match="must contain unit vectors"):
         ta.HysteresisDriver()._check_system(system)
@@ -348,7 +337,7 @@ def test_check_system_does_not_modify_valid_system(state_zero):
     state = state_zero.copy()
     state.point_data["m"][:, 0] = 1
     magnetization_before_check = state.point_data["m"].copy()
-    system = mm.System(name="test_valid_system", energy=mm.Exchange(A=1e-12), m=state)
+    system = mm.System(name="test_valid_system", energy=mm.Exchange(A=1e-12) + mm.Demag(), m=state)
 
     ta.HysteresisDriver()._check_system(system)
 

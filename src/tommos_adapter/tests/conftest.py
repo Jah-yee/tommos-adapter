@@ -3,6 +3,7 @@
 import shlex
 import subprocess
 
+import micromagneticmodel as mm
 import numpy as np
 import pytest
 import pyvista as pv
@@ -27,14 +28,15 @@ def state_zero(mesh):
     """Define basic micromagnetic state.
 
     The default magnetization is zero everywhere and the user needs to specify a physical
-    magnetization in the tests. The polarization `Js` is everywhere 1.
+    magnetization in the tests. The saturation magnetization corresponds to
+    a spontaneous polarization of 1 T everywhere.
     """
     state = pv.read(mesh["vtu"])
+    state.points *= 1e-9
     id_array = state.get_array("mat_id")
-    state.cell_data["id"] = id_array  # Rename `mat_id` cell data to `id`
-    state.cell_data.remove("mat_id")  # remove old data with name `mat_id`
+    state.cell_data["region_id"] = id_array
+    state.cell_data.remove("mat_id")
     m = np.zeros((state.n_points, 3), dtype=np.float32)
     state.point_data["m"] = m
-    Js_1_array = np.ones_like(state.n_cells, dtype=np.float32)
-    state.cell_data["Js"] = Js_1_array
+    state.cell_data["Ms"] = np.full(state.n_cells, 1 / mm.consts.mu0)
     return state

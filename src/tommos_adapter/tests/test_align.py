@@ -20,7 +20,7 @@ def test_align_external_field(state_zero, tmp_path, sign):
     # Read mesh and define magnetization
     state = state_zero.copy()
     state.point_data["m"][:, [1, 2]] = 1 / np.sqrt(2)
-    state.cell_data["Js"] *= Js
+    state.cell_data["Ms"] *= Js
 
     # Define micromagnetic system
     system = mm.System(name="test_relaxation")
@@ -28,7 +28,7 @@ def test_align_external_field(state_zero, tmp_path, sign):
 
     # Define energies
     u = (np.sin(u_theta) * np.cos(u_phi), np.sin(u_theta) * np.sin(u_phi), np.cos(u_theta))
-    system.energy = mm.Exchange(A=A) + mm.UniaxialAnisotropy(K=K, u=u)
+    system.energy = mm.Exchange(A=A) + mm.UniaxialAnisotropy(K=K, u=u) + mm.Demag()
 
     # Drive system
     Hmin = (-sign / mm.consts.mu0, 0, 0)

@@ -247,7 +247,7 @@ region (`0 0 100000 0 0 1e-11`).
   `osx-arm64` and `osx-64`. `--ignore-mem-warning` and `--num-devices` should
   also be reachable.
 - [ ] 3.3 Fix the `_call` return annotation (it returns `str` for
-  `dry_run`, `tommos_runner.py:316`) and the typo "calcualtor" (line 317).
+  `dry_run`, `tommos_runner.py:316`) and the typo "calculator" (line 18).
 
 ## 4. Missing features
 

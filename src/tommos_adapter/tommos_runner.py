@@ -15,7 +15,7 @@ class TommosRunner(adapter_base.ExternalRunner):
         return "Tommos"
 
     def _call(self, argstr: str, need_stderr: bool = False, dry_run: bool = False) -> subprocess.CompletedProcess:
-        """Call the external calcualtor in a subprocess.
+        """Call the external calculator in a subprocess.
 
         Args:
             argstr: String argument to add to the process call.
